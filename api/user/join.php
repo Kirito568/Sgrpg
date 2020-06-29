@@ -5,8 +5,8 @@
  */
 
 // 以下のコメントを外すと実行時エラーが発生した際にエラー内容が表示される
-// ini_set('display_errors', 'On');
-// ini_set('error_reporting', E_ALL);
+ini_set('display_errors', 'On');
+ini_set('error_reporting', E_ALL);
 
 //-------------------------------------------------
 // 初期値
@@ -18,9 +18,7 @@ define('DEFAULT_MONEY', 3000);
 //-------------------------------------------------
 // 準備
 //-------------------------------------------------
-$dsn  = 'mysql:dbname=sgrpg;host=127.0.0.1';  // 接続先を定義
-$user = 'senpai';      // MySQLのユーザーID
-$pw   = 'indocurry';   // MySQLのパスワード
+require_once('../define.php');
 
 // 実行したいSQL
 $sql1 = 'INSERT INTO User(lv, exp, money) VALUES(:lv, :exp, :money)';
@@ -31,7 +29,12 @@ $sql2 = 'SELECT LAST_INSERT_ID() as id';  // AUTO INCREMENTした値を取得す
 // SQLを実行
 //-------------------------------------------------
 try{
-  $dbh = new PDO($dsn, $user, $pw);   // 接続
+  $dsn=Define::$dsn;
+  $user=Define::$user;
+  $pw=Define::$pw;
+
+  $dbh= new PDO($dsn,$user,$pw);
+// 接続
   $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);  // エラーモード
 
   //-------------------------------------------------
@@ -58,10 +61,9 @@ try{
   // 実行結果から1レコード取ってくる
   $buff = $sth->fetch(PDO::FETCH_ASSOC);
 }
-catch( PDOException $e ) {
-  sendResponse(false, 'Database error: '.$e->getMessage());  // 本来エラーメッセージはサーバ内のログへ保存する(悪意のある人間にヒントを与えない)
+catch(PDOexception $e){
   exit(1);
-}
+} 
 
 //-------------------------------------------------
 // 実行結果を返却
