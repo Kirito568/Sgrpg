@@ -1,6 +1,4 @@
 <?php
-require_once('../define.php');
-
 /**
  * ガチャAPI
  *
@@ -11,143 +9,78 @@ require_once('../define.php');
 // ini_set('error_reporting', E_ALL);
 
 //-------------------------------------------------
-// 定数
+// ライブラリ
 //-------------------------------------------------
-// キャラクター数
-define('MAX_CHARA', 10);
-
-// ガチゃ1回の価格
-define('GACHA_PRICE', 300);
-
+require_once('../util.php');
+require_once('../../model/user.php');
+require_once('../../model/gacha.php');
+require_once('../../model/chara.php');
 
 //-------------------------------------------------
 // 引数を受け取る
 //-------------------------------------------------
-// ユーザーIDを受け取る
-$uid = isset($_GET['uid'])?  $_GET['uid']:null;
+$token = UserModel::getTokenfromQuery();
 
-// Validation
-if( ($uid === null) || (!is_numeric($uid)) ){
-  sendResponse(false, 'Invalid uid');
+if( !$token ){
+  sendResponse(false, 'Invalid token');
   exit(1);
 }
-//-------------------------------------------------
-// 準備
-//-------------------------------------------------
 
-
-//---------------------------
-// 実行したいSQL
-//---------------------------
-// Userテーブルから所持金を取得
-$sql1 = 'SELECT money FROM User WHERE id=:userid';
-
-// Userテーブルの所持金を減産
-$sql2 = 'UPDATE User SET money=money-:price';
-
-// UserCharaテーブルにキャラクターを追加
-$sql3 = 'INSERT INTO UserChara(user_id, chara_id) VALUES(:userid,:charaid)';
-
-// Charaテーブルから1レコード取得
-$sql4 = 'SELECT * FROM Chara WHERE id=:charaid';
 
 //-------------------------------------------------
 // SQLを実行
 //-------------------------------------------------
+$gacha = new GachaModel();
+$chara_id = $gacha->drop();  // 抽選のみ
+
 try{
-    $dsn=Define::$dsn;
-    $user=Define::$user;
-    $pw=Define::$pw;
+  $user = new UserModel();
 
-    $dbh = new PDO($dsn, $user, $pw);   // 接続
-    $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);  // エラーモード
-  
-    // トランザクション開始
-    $dbh->beginTransaction();
-  
-    //---------------------------
-    // 所持金の残高を取得
-    //---------------------------
-    $sth = $dbh->prepare($sql1);
-    $sth->bindValue(':userid', $uid, PDO::PARAM_INT);
-    $sth->execute();
-    $buff = $sth->fetch(PDO::FETCH_ASSOC);
-  
-    // ユーザーが存在しているかチェック
-    if( $buff === false ){
-      sendResponse(false, 'Not Found User');
-      exit(1);
-    }
-  
-    // 残高が足りているかチェック
-    if( $buff['money'] < GACHA_PRICE ){
-      sendResponse(false, 'The balance is not enough');
-      exit(1);
-    }
-    //---------------------------
-  // 残高を減らす
-  //---------------------------
-  $sth = $dbh->prepare($sql2);
-  $sth->bindValue(':price', GACHA_PRICE, PDO::PARAM_INT);
-  $sth->execute();
+  // ユーザーIDを取得
+  $uid = $user->getUserIdByToken($token);
+  if( $uid === false ){
+    sendResponse(false, 'Not Found User');
+    exit(1);
+  }
 
-  //---------------------------
-  // キャラクターを抽選
-  //---------------------------
-  $charaid = random_int(1, MAX_CHARA);
+  // トランザクション開始
+  $user->begin();
 
-  //---------------------------
-  // キャラクターを所有
-  //---------------------------
-  $sth = $dbh->prepare($sql3);
-  $sth->bindValue(':userid',  $uid,     PDO::PARAM_INT);
-  $sth->bindValue(':charaid', $charaid, PDO::PARAM_INT);
-  $sth->execute();
+  // お金を消費
+  $ret = $user->useMoney($uid, GachaModel::$PRICE);
+  if( $ret === false ){
+    sendResponse(false, $user->getError());
+    exit(1);
+  }
 
-  //---------------------------
-  // キャラクター情報を取得
-  //---------------------------
-  $sth = $dbh->prepare($sql4);
-  $sth->bindValue(':charaid', $charaid, PDO::PARAM_INT);
-  $sth->execute();
-  $chara = $sth->fetch(PDO::FETCH_ASSOC);
-   //---------------------------
-  // トランザクション確定
-  //---------------------------
-  $dbh->commit();
+  // キャラクターを所有  
+  $user->addChara($uid, $chara_id);
+  $user->commit();
 }
 catch( PDOException $e ) {
-  // ロールバック
-  $dbh->rollBack();
-
-  sendResponse(false, 'Database error: '.$e->getMessage());  // 本来エラーメッセージはサーバ内のログへ保存する(悪意のある人間にヒントを与えない)
+  $user->rollback();
+  sendResponse(false, 'Database error1: '.$e->getMessage());
   exit(1);
 }
 
 //-------------------------------------------------
 // 実行結果を返却
 //-------------------------------------------------
+try{
+  $chara = new CharaModel();
+  $buff = $chara->getRecordById($chara_id);
+}
+catch( PDOException $e ) {
+  sendResponse(false, 'Database error2: '.$e->getMessage());
+  exit(1);
+}
+
 // データが0件
 if( $buff === false ){
   sendResponse(false, 'System Error');
 }
 // データを正常に取得
 else{
-  sendResponse(true, $chara);
+  sendResponse(true, $buff);
 }
 
-
-/**
- * 実行結果をJSON形式で返却する
- *
- * @param boolean $status
- * @param array   $value
- * @return void
- */
-function sendResponse($status, $value=[]){
-  header('Content-type: application/json');
-  echo json_encode([
-    'status' => $status,
-    'result' => $value
-  ]);
-}
